@@ -40,6 +40,7 @@ func main() {
 	http.HandleFunc("/api/upload-excel", uploadExcelHandler)
 	http.HandleFunc("/api/choose-folder", chooseFolderHandler)
 	http.HandleFunc("/api/docs", docsHandler)
+	http.HandleFunc("/api/docs/read", docReadHandler)
 	http.Handle("/docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir("docs"))))
 	http.HandleFunc("/api/status", statusHandler)
 	addr := "127.0.0.1:8765"
