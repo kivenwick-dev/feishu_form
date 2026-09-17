@@ -265,7 +265,14 @@ func chooseFolder() ([]byte, error) {
 	case "darwin":
 		return exec.Command("osascript", "-e", `POSIX path of (choose folder with prompt "选择归档输出目录")`).Output()
 	default:
-		return nil, fmt.Errorf("当前系统不支持目录选择，请直接填写输出路径")
+		out, err := exec.Command("zenity", "--file-selection", "--directory", "--title=选择归档输出目录").Output()
+		if err != nil {
+			return nil, fmt.Errorf("当前系统不支持目录选择，请直接填写输出路径")
+		}
+		if strings.TrimSpace(string(out)) == "" {
+			return nil, fmt.Errorf("已取消选择目录")
+		}
+		return out, nil
 	}
 }
 
