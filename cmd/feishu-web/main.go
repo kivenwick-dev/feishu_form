@@ -267,7 +267,15 @@ func chooseFolder() ([]byte, error) {
 	default:
 		out, err := exec.Command("zenity", "--file-selection", "--directory", "--title=选择归档输出目录").Output()
 		if err != nil {
-			return nil, fmt.Errorf("当前系统不支持目录选择，请直接填写输出路径")
+			var exitErr *exec.ExitError
+			switch {
+			case errors.Is(err, exec.ErrNotFound):
+				return nil, fmt.Errorf("当前系统不支持目录选择，请直接填写输出路径")
+			case errors.As(err, &exitErr) && exitErr.ExitCode() == 1:
+				return nil, fmt.Errorf("已取消选择目录")
+			default:
+				return nil, fmt.Errorf("无法选择目录：%w，请直接填写输出路径", err)
+			}
 		}
 		if strings.TrimSpace(string(out)) == "" {
 			return nil, fmt.Errorf("已取消选择目录")
