@@ -4,9 +4,11 @@
 
 完整的安装、环境变量、网页启动、Excel 对应规则和故障排查请阅读：[docs/使用说明.md](docs/使用说明.md)。
 
+Windows 启动脚本和打包入口位于 [`windows/`](windows/README.md)，双击 `windows/start.bat` 即可启动；也可以运行 `windows/build.ps1` 生成 Windows 可执行文件。
+
 ## 技术栈
 
-- **正式实现：Go**。交付为单一 macOS 可执行文件，不依赖 Python 运行环境。
+- **正式实现：Go**。macOS 和 Windows 均可使用，不依赖 Python 运行环境。
 - **飞书接入：** `net/http` 调用飞书 OpenAPI，采用用户授权或企业自建应用令牌。
 - **本地归档：** Go 标准库负责目录、文本、ZIP、并发下载与重试。
 - **界面：** 后续使用本地浏览器页面（`127.0.0.1`）作为小工具界面，不制作需要签名的 `.app`。

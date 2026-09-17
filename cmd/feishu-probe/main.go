@@ -4,12 +4,18 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"compress/zlib"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/xuri/excelize/v2"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -71,6 +77,43 @@ type result struct {
 	DownloadCheck   *downloadCheck  `json:"download_check,omitempty"`
 	ArchivePath     string          `json:"archive_path,omitempty"`
 	Decision        string          `json:"decision"`
+}
+
+const screenshotFolder = "截图"
+
+type screenshotPDFOptions struct {
+	WidthMM  float64
+	HeightMM float64
+}
+
+func outputAttachmentKind(kind string) string {
+	if kind == "发票" {
+		return "发票"
+	}
+	if kind == "支付_账号充值成功截图" || kind == "会员开通截图" {
+		return screenshotFolder
+	}
+	return kind
+}
+
+// attachmentTarget 返回附件落盘路径。所有截图类附件统一写入“截图”文件夹，
+// 同名文件会自动追加序号，避免同一员工的多张截图互相覆盖。
+func attachmentTarget(personFolder, kind, fileName string) string {
+	dir := filepath.Join(personFolder, outputAttachmentKind(kind))
+	return filepath.Join(dir, uniqueFileName(dir, fileName))
+}
+
+// uniqueFileName 在 dir 中返回不与现有文件冲突的名称；冲突时在扩展名前追加 _2、_3……
+func uniqueFileName(dir, name string) string {
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	candidate := name
+	for i := 2; ; i++ {
+		if _, err := os.Stat(filepath.Join(dir, candidate)); err != nil {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s_%d%s", base, i, ext)
+	}
 }
 
 func parseLink(raw string) (sourceLink, error) {
@@ -337,6 +380,184 @@ func hasFileBytes(dir string, data []byte) (bool, error) {
 	return false, nil
 }
 
+func createScreenshotPDF(folder, outputPath string, options screenshotPDFOptions) error {
+	if options.WidthMM <= 0 || options.HeightMM <= 0 {
+		return errors.New("截图 PDF 图片宽度和高度必须大于 0")
+	}
+	const (
+		pageWidth  = 595.275590551
+		pageHeight = 841.88976378
+		mmToPoints = 72 / 25.4
+	)
+	boxWidth := options.WidthMM * mmToPoints
+	boxHeight := options.HeightMM * mmToPoints
+	if boxWidth > pageWidth || boxHeight > pageHeight {
+		return fmt.Errorf("截图尺寸 %.2fmm x %.2fmm 超出 A4 页面", options.WidthMM, options.HeightMM)
+	}
+
+	entries, err := os.ReadDir(folder)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var images []pdfImage
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(folder, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		imageData, err := makePDFImage(data)
+		if errors.Is(err, errUnsupportedPDFImage) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("读取截图 %s 失败：%w", entry.Name(), err)
+		}
+		images = append(images, imageData)
+	}
+	if len(images) == 0 {
+		return nil
+	}
+	return os.WriteFile(outputPath, buildImagePDF(images, pageWidth, pageHeight, boxWidth, boxHeight), 0600)
+}
+
+var errUnsupportedPDFImage = errors.New("不是支持的图片格式")
+
+var screenshotWidthMM = 180.0
+var screenshotHeightMM = 260.0
+
+type pdfImage struct {
+	Width       int
+	Height      int
+	ColorSpace  string
+	BitsPerComp int
+	Filter      string
+	Data        []byte
+}
+
+func makePDFImage(data []byte) (pdfImage, error) {
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return pdfImage{}, errUnsupportedPDFImage
+	}
+	switch format {
+	case "jpeg":
+		return pdfImage{
+			Width: config.Width, Height: config.Height,
+			ColorSpace: "/DeviceRGB", BitsPerComp: 8, Filter: "/DCTDecode", Data: data,
+		}, nil
+	case "png", "gif":
+		decoded, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return pdfImage{}, err
+		}
+		raw := make([]byte, 0, config.Width*config.Height*3)
+		for y := 0; y < config.Height; y++ {
+			for x := 0; x < config.Width; x++ {
+				r, g, b, _ := decoded.At(x, y).RGBA()
+				raw = append(raw, byte(r>>8), byte(g>>8), byte(b>>8))
+			}
+		}
+		var compressed bytes.Buffer
+		writer := zlib.NewWriter(&compressed)
+		if _, err := writer.Write(raw); err != nil {
+			return pdfImage{}, err
+		}
+		if err := writer.Close(); err != nil {
+			return pdfImage{}, err
+		}
+		return pdfImage{
+			Width: config.Width, Height: config.Height,
+			ColorSpace: "/DeviceRGB", BitsPerComp: 8, Filter: "/FlateDecode", Data: compressed.Bytes(),
+		}, nil
+	default:
+		return pdfImage{}, errUnsupportedPDFImage
+	}
+}
+
+func buildImagePDF(images []pdfImage, pageWidth, pageHeight, boxWidth, boxHeight float64) []byte {
+	// 对象编号固定：1 = 页面树，2 = 目录，其后每张图片占用“图片 / 内容 / 页面”三个对象。
+	const (
+		pagesObject   = 1
+		catalogObject = 2
+		firstImage    = 3
+	)
+	w := newPDFWriter(2 + len(images)*3)
+	w.buf.WriteString("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
+
+	kids := make([]string, 0, len(images))
+	for i, img := range images {
+		imageObject := firstImage + i*3
+		contentObject := imageObject + 1
+		pageObject := imageObject + 2
+
+		w.stream(imageObject, fmt.Sprintf(
+			"/Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent %d /Filter %s",
+			img.Width, img.Height, img.ColorSpace, img.BitsPerComp, img.Filter,
+		), img.Data)
+		w.stream(contentObject, "", buildPageContent(pageWidth, pageHeight, boxWidth, boxHeight, img.Width, img.Height, imageObject))
+		w.object(pageObject, fmt.Sprintf(
+			"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %.4f %.4f] /Resources << /ProcSet [/PDF /ImageC] /XObject << /Im%d %d 0 R >> >> /Contents %d 0 R >>",
+			pagesObject, pageWidth, pageHeight, imageObject, imageObject, contentObject,
+		))
+		kids = append(kids, fmt.Sprintf("%d 0 R", pageObject))
+	}
+	w.object(pagesObject, fmt.Sprintf("<< /Type /Pages /Count %d /Kids [%s] >>", len(images), strings.Join(kids, " ")))
+	w.object(catalogObject, fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R >>", pagesObject))
+	return w.finish(catalogObject)
+}
+
+// pdfWriter 按对象编号记录字节偏移，保证生成的 xref 表与对象一一对应。
+type pdfWriter struct {
+	buf     bytes.Buffer
+	offsets []int // offsets[n] 为对象 n 的偏移；偏移 0 为固定空闲项。
+}
+
+func newPDFWriter(objectCount int) *pdfWriter {
+	return &pdfWriter{offsets: make([]int, objectCount+1)}
+}
+
+func (w *pdfWriter) object(number int, body string) {
+	w.offsets[number] = w.buf.Len()
+	fmt.Fprintf(&w.buf, "%d 0 obj\n%s\nendobj\n", number, body)
+}
+
+func (w *pdfWriter) stream(number int, dict string, data []byte) {
+	w.offsets[number] = w.buf.Len()
+	if dict = strings.TrimSpace(dict); dict != "" {
+		dict = " " + dict
+	}
+	fmt.Fprintf(&w.buf, "%d 0 obj\n<<%s /Length %d >>\nstream\n", number, dict, len(data))
+	w.buf.Write(data)
+	w.buf.WriteString("\nendstream\nendobj\n")
+}
+
+func (w *pdfWriter) finish(rootObject int) []byte {
+	xref := w.buf.Len()
+	fmt.Fprintf(&w.buf, "xref\n0 %d\n", len(w.offsets))
+	w.buf.WriteString("0000000000 65535 f \n")
+	for _, offset := range w.offsets[1:] {
+		fmt.Fprintf(&w.buf, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&w.buf, "trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(w.offsets), rootObject, xref)
+	return w.buf.Bytes()
+}
+
+func buildPageContent(pageWidth, pageHeight, boxWidth, boxHeight float64, imageWidth, imageHeight, imageObject int) []byte {
+	scale := math.Min(boxWidth/float64(imageWidth), boxHeight/float64(imageHeight))
+	drawWidth := float64(imageWidth) * scale
+	drawHeight := float64(imageHeight) * scale
+	x := (pageWidth - drawWidth) / 2
+	y := (pageHeight - drawHeight) / 2
+	return []byte(fmt.Sprintf("q\n%.4f 0 0 %.4f %.4f %.4f cm\n/Im%d Do\nQ", drawWidth, drawHeight, x, y, imageObject))
+}
+
 func countRegularFiles(dir string) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -427,7 +648,7 @@ func archiveFromValues(client *http.Client, token, spreadsheetName, outDir strin
 		if err := os.MkdirAll(folder, 0755); err != nil {
 			return "", err
 		}
-		for _, sub := range []string{"发票", "支付_账号充值成功截图", "会员开通截图"} {
+		for _, sub := range []string{"发票", screenshotFolder} {
 			if err := os.MkdirAll(filepath.Join(folder, sub), 0755); err != nil {
 				return "", err
 			}
@@ -455,7 +676,7 @@ func archiveFromValues(client *http.Client, token, spreadsheetName, outDir strin
 				continue
 			}
 			items := findAttachments(mustJSON(row[i]))
-			for j, att := range items {
+			for _, att := range items {
 				if att.FileToken == "" {
 					continue
 				}
@@ -472,14 +693,13 @@ func archiveFromValues(client *http.Client, token, spreadsheetName, outDir strin
 				if filepath.Ext(fn) == "" {
 					fn += attachmentExtension(fn, firstNonEmpty(mime, att.MIMEType), data)
 				}
-				target := filepath.Join(folder, kind, fn)
-				if j > 0 {
-					target = filepath.Join(folder, kind, fmt.Sprintf("%d_%s", j+1, fn))
-				}
-				if err := os.WriteFile(target, data, 0600); err != nil {
+				if err := os.WriteFile(attachmentTarget(folder, kind, fn), data, 0600); err != nil {
 					return "", err
 				}
 			}
+		}
+		if err := createScreenshotPDF(filepath.Join(folder, screenshotFolder), filepath.Join(folder, "截图.pdf"), screenshotPDFOptions{WidthMM: screenshotWidthMM, HeightMM: screenshotHeightMM}); err != nil {
+			return "", fmt.Errorf("生成 %s 截图 PDF 失败：%w", name, err)
 		}
 		fmt.Printf("已归档：%s\n", name)
 	}
@@ -645,13 +865,6 @@ func supplementExcelImages(excelPath, archivePath string) error {
 		return err
 	}
 	imageCount := 0
-	perPerson := map[string]int{}
-	perKind := map[string]map[string]int{}
-	perKindFound := map[string]map[string]int{}
-	for _, person := range rowPerson {
-		perKind[person] = map[string]int{"发票": 0, "支付_账号充值成功截图": 0, "会员开通截图": 0}
-		perKindFound[person] = map[string]int{"发票": 0, "支付_账号充值成功截图": 0, "会员开通截图": 0}
-	}
 	fmt.Printf("Excel 浮动图片锚点共 %d 个\n", len(pictureCells))
 	for _, cell := range pictureCells {
 		col, rowNum, err := excelize.CellNameToCoordinates(cell)
@@ -682,8 +895,7 @@ func supplementExcelImages(excelPath, archivePath string) error {
 				fmt.Printf("跳过图片：%s 行=%d 列=%d，表头=%q 未识别为附件列\n", cell, rowNum, col+1, header)
 				continue
 			}
-			perKindFound[person][kind]++
-			dir := filepath.Join(root, person, kind)
+			dir := filepath.Join(root, person, outputAttachmentKind(kind))
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return err
 			}
@@ -692,7 +904,7 @@ func supplementExcelImages(excelPath, archivePath string) error {
 				return err
 			}
 			if duplicate {
-				fmt.Printf("跳过重复图片：%s -> %s/%s\n", cell, person, kind)
+				fmt.Printf("跳过重复图片：%s -> %s/%s\n", cell, person, outputAttachmentKind(kind))
 				continue
 			}
 			ext := pic.Extension
@@ -706,9 +918,7 @@ func supplementExcelImages(excelPath, archivePath string) error {
 				return err
 			}
 			imageCount++
-			perPerson[person]++
-			perKind[person][kind]++
-			fmt.Printf("Excel 图片：%s -> %s/%s/%s\n", cell, person, kind, name)
+			fmt.Printf("Excel 图片：%s -> %s/%s/%s\n", cell, person, outputAttachmentKind(kind), name)
 		}
 	}
 	f.Close()
@@ -716,16 +926,21 @@ func supplementExcelImages(excelPath, archivePath string) error {
 		return errors.New("Excel 中未找到可归档的浮动图片")
 	}
 	for _, person := range rowPerson {
-		counts := make(map[string]int, 3)
-		for _, kind := range []string{"发票", "支付_账号充值成功截图", "会员开通截图"} {
-			count, err := countRegularFiles(filepath.Join(root, person, kind))
-			if err != nil {
-				return err
-			}
-			counts[kind] = count
+		invoiceCount, err := countRegularFiles(filepath.Join(root, person, "发票"))
+		if err != nil {
+			return err
 		}
-		fmt.Printf("图片统计（文件夹实际数量）：%s 发票=%d 支付截图=%d 会员截图=%d\n",
-			person, counts["发票"], counts["支付_账号充值成功截图"], counts["会员开通截图"])
+		screenshotCount, err := countRegularFiles(filepath.Join(root, person, screenshotFolder))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("图片统计（文件夹实际数量）：%s 发票=%d 截图=%d\n", person, invoiceCount, screenshotCount)
+	}
+	for _, person := range rowPerson {
+		folder := filepath.Join(root, person)
+		if err := createScreenshotPDF(filepath.Join(folder, screenshotFolder), filepath.Join(folder, "截图.pdf"), screenshotPDFOptions{WidthMM: screenshotWidthMM, HeightMM: screenshotHeightMM}); err != nil {
+			return err
+		}
 	}
 	return rebuildZip(root, filepath.Dir(archivePath))
 }
@@ -890,7 +1105,10 @@ func main() {
 	archive := flag.Bool("archive", false, "批量下载附件并生成员工归档 ZIP")
 	archiveDir := flag.String("archive-dir", "outputs", "批量归档输出目录")
 	excelPath := flag.String("excel", "", "可选：本地 Excel 路径，用于补充浮动图片")
+	widthMM := flag.Float64("screenshot-width-mm", screenshotWidthMM, "截图 PDF 图片宽度（毫米）")
+	heightMM := flag.Float64("screenshot-height-mm", screenshotHeightMM, "截图 PDF 图片高度（毫米）")
 	flag.Parse()
+	screenshotWidthMM, screenshotHeightMM = *widthMM, *heightMM
 	if *urlFlag == "" || *appID == "" || *appSecret == "" {
 		fmt.Fprintln(os.Stderr, "请提供 --url，并通过 FEISHU_APP_ID / FEISHU_APP_SECRET 或参数传入应用凭据。")
 		os.Exit(2)

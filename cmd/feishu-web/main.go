@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -29,10 +30,11 @@ var job = struct {
 const page = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>飞书报销表归档</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;margin:0;padding:0 34px 48px 300px;color:#172033;background:#f5f7fb}main{max-width:860px;margin:42px auto}.card{background:#fff;border:1px solid #e7eaf0;border-radius:16px;padding:30px 34px;box-shadow:0 10px 30px #20304d0d}h1{font-size:28px;margin:0 0 8px}label{display:block;margin:22px 0 8px;font-weight:650;font-size:14px}input{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid #d5dbe5;border-radius:9px;font-size:14px;background:#fff}input:focus{outline:3px solid #1677ff22;border-color:#1677ff}.row{display:flex;align-items:center}.row input{flex:1}button{margin-top:24px;padding:12px 24px;border:0;border-radius:9px;background:#1677ff;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:.15s}button:hover{background:#0f63d8;transform:translateY(-1px)}button.small{margin:0 0 0 10px;padding:10px 14px;font-size:13px;background:#eef4ff;color:#145dcc}button.small:hover{background:#dceaff}button:disabled{background:#aeb8c8;cursor:not-allowed;transform:none}progress{width:100%;height:12px;margin-top:24px;accent-color:#1677ff}#status{margin-top:18px;padding:13px 15px;border-radius:9px;background:#f6f8fb;white-space:pre-wrap;color:#526078;line-height:1.7;font-size:13px;min-height:22px}.hint{color:#718096;font-size:13px}.drawer{position:fixed;left:0;top:0;width:260px;height:100vh;box-sizing:border-box;padding:28px 18px;background:#fff;border-right:1px solid #e3e7ef;overflow:auto;box-shadow:4px 0 18px #20304d08}.drawer h2{font-size:18px;margin:0 0 6px}.drawer .sub{font-size:12px;color:#8792a5;margin-bottom:18px}.drawer a{display:block;padding:10px 11px;color:#245fc2;text-decoration:none;border-radius:8px;font-size:13px;cursor:pointer}.drawer a:hover{background:#eef4ff}.modal{display:none;position:fixed;inset:0;background:#17203366;z-index:10;align-items:center;justify-content:center;padding:24px}.modal.show{display:flex}.modalbox{background:#fff;border-radius:14px;width:min(760px,94vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #17203344}.modalhead{padding:16px 20px;border-bottom:1px solid #e8ebf1;display:flex;justify-content:space-between;align-items:center;font-weight:650}.close{margin:0;padding:2px 9px;background:transparent;color:#65738a;font-size:24px;font-weight:400}.close:hover{background:#f0f2f6;color:#172033;transform:none}.modalbody{padding:22px;overflow:auto;white-space:pre-wrap;line-height:1.75;color:#39465a;font-size:14px}</style>
 <div class="drawer"><h2>文件抽屉</h2><div class="sub">点击文件名查看使用说明</div><div id="docs">正在读取说明…</div></div><main><div class="card"><h1>飞书报销表归档工具</h1><p class="hint">线上表格下载 PDF，本地 Excel 补充浮动图片，最后合并生成员工目录和 ZIP。</p>
-<label>飞书表格链接</label><input id="url" placeholder="粘贴 https://...feishu.cn/wiki/... 链接"><label>本地 Excel 文件（可选）</label><input id="excel" type="file" accept=".xlsx,.xlsm"><label>输出目录</label><div class="row"><input id="out" value="outputs"><button class="small" onclick="chooseOut()">选择目录</button></div><button id="go" onclick="start()">开始归档</button><progress id="bar" value="0" max="100"></progress><div id="status">等待开始</div></div></main><div id="modal" class="modal" onclick="if(event.target===this)closeDoc()"><div class="modalbox"><div class="modalhead"><span id="modalTitle">使用说明</span><button class="close" onclick="closeDoc()">×</button></div><div id="modalBody" class="modalbody"></div></div></div>
-<script>let timer;async function chooseOut(){let r=await fetch('/api/choose-folder',{method:'POST'});if(r.ok)document.getElementById('out').value=(await r.json()).path}async function loadDocs(){let r=await fetch('/api/docs');let d=await r.json();let box=document.getElementById('docs');box.replaceChildren();if(!d.length){let empty=document.createElement('span');empty.className='hint';empty.textContent='暂无说明文件';box.append(empty);return}d.forEach(name=>{let a=document.createElement('a');a.href='#';a.textContent=name;a.addEventListener('click',e=>{e.preventDefault();openDoc(name)});box.append(a)})}async function openDoc(name){let r=await fetch('/api/docs/read?name='+encodeURIComponent(name));let body=await r.text();document.getElementById('modalTitle').textContent=name;document.getElementById('modalBody').textContent=r.ok?body:'读取失败：'+body;document.getElementById('modal').classList.add('show')}function closeDoc(){document.getElementById('modal').classList.remove('show')}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDoc()});async function start(){let b=document.getElementById('go'),u=document.getElementById('url').value,o=document.getElementById('out').value;b.disabled=true;document.getElementById('bar').value=5;let x='';let f=document.getElementById('excel').files[0];if(f){let fd=new FormData();fd.append('file',f);let up=await fetch('/api/upload-excel',{method:'POST',body:fd});if(!up.ok){document.getElementById('status').textContent=await up.text();b.disabled=false;return}x=(await up.json()).path}let r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,excel:x,out:o})});if(!r.ok){document.getElementById('status').textContent=await r.text();b.disabled=false;return}timer=setInterval(poll,700)}async function poll(){let r=await fetch('/api/status'),s=await r.json();document.getElementById('status').textContent=s.logs.join('\n');document.getElementById('bar').value=s.done?100:(s.running?Math.min(95,10+s.logs.length*4):0);if(s.done||s.error){clearInterval(timer);document.getElementById('go').disabled=false;if(s.error)document.getElementById('bar').value=0}}loadDocs();poll()</script></html>`
+<label>飞书表格链接</label><input id="url" placeholder="粘贴 https://...feishu.cn/wiki/... 链接"><label>本地 Excel 文件（可选）</label><input id="excel" type="file" accept=".xlsx,.xlsm"><label>截图 PDF 图片尺寸（毫米）</label><div class="row"><input id="w" type="number" min="1" step="1" value="180" placeholder="宽度"><input id="h" type="number" min="1" step="1" value="260" placeholder="高度"></div><label>输出目录</label><div class="row"><input id="out" value="outputs"><button class="small" onclick="chooseOut()">选择目录</button></div><button id="go" onclick="start()">开始归档</button><progress id="bar" value="0" max="100"></progress><div id="status">等待开始</div></div></main><div id="modal" class="modal" onclick="if(event.target===this)closeDoc()"><div class="modalbox"><div class="modalhead"><span id="modalTitle">使用说明</span><button class="close" onclick="closeDoc()">×</button></div><div id="modalBody" class="modalbody"></div></div></div>
+<script>let timer;async function chooseOut(){let r=await fetch('/api/choose-folder',{method:'POST'});if(r.ok)document.getElementById('out').value=(await r.json()).path}async function loadDocs(){let r=await fetch('/api/docs');let d=await r.json();let box=document.getElementById('docs');box.replaceChildren();if(!d.length){let empty=document.createElement('span');empty.className='hint';empty.textContent='暂无说明文件';box.append(empty);return}d.forEach(name=>{let a=document.createElement('a');a.href='#';a.textContent=name;a.addEventListener('click',e=>{e.preventDefault();openDoc(name)});box.append(a)})}async function openDoc(name){let r=await fetch('/api/docs/read?name='+encodeURIComponent(name));let body=await r.text();document.getElementById('modalTitle').textContent=name;document.getElementById('modalBody').textContent=r.ok?body:'读取失败：'+body;document.getElementById('modal').classList.add('show')}function closeDoc(){document.getElementById('modal').classList.remove('show')}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDoc()});async function start(){let b=document.getElementById('go'),u=document.getElementById('url').value,o=document.getElementById('out').value;let w=Number(document.getElementById('w').value),h=Number(document.getElementById('h').value);b.disabled=true;document.getElementById('bar').value=5;let x='';let f=document.getElementById('excel').files[0];if(f){let fd=new FormData();fd.append('file',f);let up=await fetch('/api/upload-excel',{method:'POST',body:fd});if(!up.ok){document.getElementById('status').textContent=await up.text();b.disabled=false;return}x=(await up.json()).path}let r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,excel:x,out:o,width:w,height:h})});if(!r.ok){document.getElementById('status').textContent=await r.text();b.disabled=false;return}timer=setInterval(poll,700)}async function poll(){let r=await fetch('/api/status'),s=await r.json();document.getElementById('status').textContent=s.logs.join('\n');document.getElementById('bar').value=s.done?100:(s.running?Math.min(95,10+s.logs.length*4):0);if(s.done||s.error){clearInterval(timer);document.getElementById('go').disabled=false;if(s.error)document.getElementById('bar').value=0}}loadDocs();poll()</script></html>`
 
 func main() {
+	root := projectRoot()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_ = template.Must(template.New("p").Parse(page)).Execute(w, nil)
 	})
@@ -41,11 +43,11 @@ func main() {
 	http.HandleFunc("/api/choose-folder", chooseFolderHandler)
 	http.HandleFunc("/api/docs", docsHandler)
 	http.HandleFunc("/api/docs/read", docReadHandler)
-	http.Handle("/docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir("docs"))))
+	http.Handle("/docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir(filepath.Join(root, "docs")))))
 	http.HandleFunc("/api/status", statusHandler)
 	addr := "127.0.0.1:8765"
 	if os.Getenv("NO_BROWSER_OPEN") != "1" {
-		go func() { time.Sleep(500 * time.Millisecond); _ = exec.Command("open", "http://"+addr).Start() }()
+		go func() { time.Sleep(500 * time.Millisecond); openBrowser("http://" + addr) }()
 	}
 	fmt.Println("飞书报销归档工具已启动：http://" + addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
@@ -54,9 +56,9 @@ func main() {
 }
 
 func chooseFolderHandler(w http.ResponseWriter, r *http.Request) {
-	out, err := exec.Command("osascript", "-e", `POSIX path of (choose folder with prompt "选择归档输出目录")`).Output()
+	out, err := chooseFolder()
 	if err != nil {
-		http.Error(w, "已取消选择目录", http.StatusBadRequest)
+		http.Error(w, "无法选择目录："+err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -64,9 +66,8 @@ func chooseFolderHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func docsHandler(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir("docs")
+	entries, err := os.ReadDir(filepath.Join(projectRoot(), "docs"))
 	if err != nil {
-		_ = os.MkdirAll("docs", 0755)
 		entries = nil
 	}
 	var names []string
@@ -85,7 +86,7 @@ func docReadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "缺少文件名", 400)
 		return
 	}
-	b, err := os.ReadFile(filepath.Join("docs", name))
+	b, err := os.ReadFile(filepath.Join(projectRoot(), "docs", name))
 	if err != nil {
 		http.Error(w, "文件不存在", 404)
 		return
@@ -124,7 +125,10 @@ func uploadExcelHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func startHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct{ URL, Out, Excel string }
+	var req struct {
+		URL, Out, Excel string
+		Width, Height   float64
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.URL) == "" {
 		http.Error(w, "请输入飞书表格链接", http.StatusBadRequest)
 		return
@@ -140,16 +144,22 @@ func startHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Out) == "" {
 		req.Out = "outputs"
 	}
-	go runArchive(req.URL, req.Out, req.Excel)
+	go runArchive(req.URL, req.Out, req.Excel, req.Width, req.Height)
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func runArchive(link, out, excel string) {
-	args := []string{"run", "./cmd/feishu-probe", "--archive", "--archive-dir", out, "--url", link}
+func runArchive(link, out, excel string, width, height float64) {
+	args := []string{"--archive", "--archive-dir", out, "--url", link}
+	if width > 0 {
+		args = append(args, "--screenshot-width-mm", fmt.Sprintf("%g", width))
+	}
+	if height > 0 {
+		args = append(args, "--screenshot-height-mm", fmt.Sprintf("%g", height))
+	}
 	if strings.TrimSpace(excel) != "" {
 		args = append(args, "--excel", strings.TrimSpace(excel))
 	}
-	cmd := exec.Command("go", args...)
+	cmd := archiveCommand(args)
 	cmd.Dir, cmd.Env = projectRoot(), os.Environ()
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -206,9 +216,84 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(job.jobState)
 }
 func projectRoot() string {
-	p, _ := os.Getwd()
-	if filepath.Base(p) == "feishu-web" {
-		return filepath.Clean(filepath.Join(p, "../.."))
+	var candidates []string
+	if configured := strings.TrimSpace(os.Getenv("REIMBURSEMENT_PROJECT_ROOT")); configured != "" {
+		candidates = append(candidates, configured)
 	}
-	return p
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	}
+	if executable, err := os.Executable(); err == nil {
+		dir := filepath.Dir(executable)
+		candidates = append(candidates, dir, filepath.Dir(dir))
+	}
+	for _, candidate := range candidates {
+		root, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		if isProjectRoot(root) {
+			return root
+		}
+	}
+	if p, err := os.Getwd(); err == nil {
+		return p
+	}
+	return "."
+}
+
+func isProjectRoot(dir string) bool {
+	_, docsErr := os.Stat(filepath.Join(dir, "docs"))
+	_, cmdErr := os.Stat(filepath.Join(dir, "cmd"))
+	return docsErr == nil && cmdErr == nil
+}
+
+func openBrowser(target string) {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		command = exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target)
+	case "darwin":
+		command = exec.Command("open", target)
+	default:
+		command = exec.Command("xdg-open", target)
+	}
+	_ = command.Start()
+}
+
+func chooseFolder() ([]byte, error) {
+	switch runtime.GOOS {
+	case "windows":
+		script := `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = '选择归档输出目录'; $dialog.ShowNewFolderButton = $true; if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }`
+		out, err := exec.Command("powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script).Output()
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(string(out)) == "" {
+			return nil, fmt.Errorf("已取消选择目录")
+		}
+		return out, nil
+	case "darwin":
+		return exec.Command("osascript", "-e", `POSIX path of (choose folder with prompt "选择归档输出目录")`).Output()
+	default:
+		return nil, fmt.Errorf("当前系统不支持目录选择，请直接填写输出路径")
+	}
+}
+
+func archiveCommand(args []string) *exec.Cmd {
+	if executable, err := os.Executable(); err == nil {
+		dir := filepath.Dir(executable)
+		names := []string{"feishu-probe"}
+		if runtime.GOOS == "windows" {
+			names = append(names, "feishu-probe.exe")
+		}
+		for _, name := range names {
+			path := filepath.Join(dir, name)
+			if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
+				return exec.Command(path, args...)
+			}
+		}
+	}
+	goArgs := append([]string{"run", "./cmd/feishu-probe"}, args...)
+	return exec.Command("go", goArgs...)
 }
