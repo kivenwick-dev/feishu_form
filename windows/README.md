@@ -6,23 +6,11 @@
 
 双击 `start.bat` 或 `feishu-web.exe` 即可。打包后的 `feishu-web.exe` 已内置飞书凭据，无需配置环境变量。
 
-如果还没有 `feishu-web.exe`，请在装有 Go 的机器上运行 `windows\build.ps1`；它会调用 `go run ./cmd/build` 生成内置凭据的单文件程序。
+如果还没有 `feishu-web.exe`，请在装有 Go 的机器上运行 `windows\build.ps1`；它会调用 `go run ./cmd/build -targets windows/amd64` 生成内置凭据的单文件程序，并复制到 `windows/feishu-web.exe`。开发者在装有 Go 时也可以用 `start.ps1` 直接走源码。
 
 ## 生成 Windows 可执行文件
 
-在 PowerShell 中，从项目根目录运行：
-
-```powershell
-.\windows\build.ps1
-```
-
-它会调用 `go run ./cmd/build`，生成单个可执行文件：
-
-```text
-dist\windows-amd64\feishu-web.exe
-```
-
-该文件已内嵌 `feishu-probe` 与 `docs/`，同事拿到后直接双击即可，不需要 Go，也不需要配置凭据。构建前先设置凭据环境变量，例如：
+先设置凭据环境变量，再从项目根目录运行：
 
 ```powershell
 $env:FEISHU_APP_ID = "cli_xxxxxxxxxxxxx"
@@ -30,11 +18,22 @@ $env:FEISHU_APP_SECRET = "xxxxxxxxxxxxxxxx"
 .\windows\build.ps1
 ```
 
-默认生成 Windows amd64。如需其它平台或架构，可直接调用构建命令，例如只生成 Windows ARM64：
+脚本会调用 `go run .\cmd\build -targets windows/amd64`，生成单个可执行文件：
+
+```text
+dist\windows-amd64\feishu-web.exe
+```
+
+并自动复制一份到 `windows\feishu-web.exe`，方便直接双击。该文件已内嵌 `feishu-probe` 与 `docs/`，同事拿到后不需要 Go，也不需要配置凭据。
+
+如需其它平台或架构，可直接调用构建命令，例如只生成 Windows ARM64（此时不会复制到 `windows\`，请从 `dist\windows-arm64\` 取用）：
 
 ```powershell
 go run .\cmd\build -targets windows/arm64
 ```
+
+> 注意：未设置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 时构建仍会成功，但产物需要环境变量覆盖才能使用。
+> 产物内已内嵌（混淆后的）凭据，不要上传到公开 Release 或对外发送。
 
 ## 命令行归档
 
