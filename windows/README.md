@@ -10,47 +10,47 @@
 
 ## 生成 Windows 可执行文件
 
-在 Windows PowerShell 中，从项目根目录运行：
+在 PowerShell 中，从项目根目录运行：
 
 ```powershell
 .\windows\build.ps1
 ```
 
-脚本会生成：
+它会调用 `go run ./cmd/build`，生成单个可执行文件：
 
 ```text
-windows\feishu-web.exe
-windows\feishu-probe.exe
+dist\windows-amd64\feishu-web.exe
 ```
 
-生成后再次双击 `start.bat` 即可，不需要 Go 参与网页归档过程。程序仍需要网络访问 `open.feishu.cn`，并需要有效的飞书应用凭据。
-
-默认脚本生成 Windows x64 版本。如需 Windows ARM64，可先设置：
-
-```powershell
-$env:GOARCH = "arm64"
-.\windows\build.ps1
-```
-
-## 命令行归档
-
-网页界面之外，也可以直接运行：
+该文件已内嵌 `feishu-probe` 与 `docs/`，同事拿到后直接双击即可，不需要 Go，也不需要配置凭据。构建前先设置凭据环境变量，例如：
 
 ```powershell
 $env:FEISHU_APP_ID = "cli_xxxxxxxxxxxxx"
 $env:FEISHU_APP_SECRET = "xxxxxxxxxxxxxxxx"
-.\windows\feishu-probe.exe `
+.\windows\build.ps1
+```
+
+默认生成 Windows amd64。如需其它平台或架构，可直接调用构建命令，例如只生成 Windows ARM64：
+
+```powershell
+go run .\cmd\build -targets windows/arm64
+```
+
+## 命令行归档
+
+网页界面之外，也可以直接运行源码版：
+
+```powershell
+$env:FEISHU_APP_ID = "cli_xxxxxxxxxxxxx"
+$env:FEISHU_APP_SECRET = "xxxxxxxxxxxxxxxx"
+go run .\cmd\feishu-probe `
   --archive `
   --archive-dir outputs `
   --url "https://你的飞书链接" `
   --excel "C:\Users\你的用户名\Documents\同一张报销表.xlsx"
 ```
 
-如果尚未生成 `.exe`，可将命令中的 `.\windows\feishu-probe.exe` 换成：
-
-```powershell
-go run .\cmd\feishu-probe ...
-```
+单文件打包只产出 `feishu-web`；如需独立的 probe 可执行文件，可用 `go build -o feishu-probe.exe .\cmd\feishu-probe` 自行构建。
 
 ## 路径和安全
 
