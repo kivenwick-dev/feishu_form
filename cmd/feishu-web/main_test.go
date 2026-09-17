@@ -93,11 +93,22 @@ func TestReadDoc(t *testing.T) {
 	if _, err := readDoc(source, ".."); err == nil {
 		t.Fatal("非法文件名应返回错误")
 	}
-	if _, err := readDoc(source, "../secret"); err == nil {
-		t.Fatal("含 ../ 的路径应被拒绝")
+}
+
+func TestReadDocSanitizesToBasename(t *testing.T) {
+	source := fstest.MapFS{
+		"secret": &fstest.MapFile{Data: []byte("inside")},
+		"hosts":  &fstest.MapFile{Data: []byte("inner-hosts")},
 	}
-	if _, err := readDoc(source, "/etc/hosts"); err == nil {
-		t.Fatal("绝对路径应被拒绝")
+	// Base("../secret") == "secret"：归一化后读取根内的 secret，而不是外层文件
+	got, err := readDoc(source, "../secret")
+	if err != nil || string(got) != "inside" {
+		t.Fatalf("readDoc(../secret) = %q, %v，want \"inside\"", got, err)
+	}
+	// Base("/etc/hosts") == "hosts"：同样落在根内
+	got, err = readDoc(source, "/etc/hosts")
+	if err != nil || string(got) != "inner-hosts" {
+		t.Fatalf("readDoc(/etc/hosts) = %q, %v，want \"inner-hosts\"", got, err)
 	}
 }
 

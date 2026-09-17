@@ -34,10 +34,11 @@ func listDocs(source fs.FS) ([]string, error) {
 	return names, nil
 }
 
-// readDoc 读取单个说明文件；文件名经过 Base 处理，拒绝路径穿越。
+// readDoc 读取单个说明文件；文件名先归一化为 basename，
+// 再由 fs.FS 保证访问不超出 docs 根目录。
 func readDoc(source fs.FS, name string) ([]byte, error) {
 	clean := path.Base(strings.TrimSpace(name))
-	if clean == "." || clean == "" {
+	if clean == "." {
 		return nil, errors.New("缺少文件名")
 	}
 	return fs.ReadFile(source, clean)
