@@ -93,4 +93,24 @@ func TestReadDoc(t *testing.T) {
 	if _, err := readDoc(source, ".."); err == nil {
 		t.Fatal("非法文件名应返回错误")
 	}
+	if _, err := readDoc(source, "../secret"); err == nil {
+		t.Fatal("含 ../ 的路径应被拒绝")
+	}
+	if _, err := readDoc(source, "/etc/hosts"); err == nil {
+		t.Fatal("绝对路径应被拒绝")
+	}
+}
+
+func TestListDocsEmptyReturnsNonNil(t *testing.T) {
+	source := fstest.MapFS{"sub/only.md": &fstest.MapFile{Data: []byte("x")}}
+	names, err := listDocs(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names == nil {
+		t.Fatal("应返回非 nil 空切片，避免 JSON 输出 null")
+	}
+	if len(names) != 0 {
+		t.Fatalf("names = %#v", names)
+	}
 }

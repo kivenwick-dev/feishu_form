@@ -1,9 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,9 +36,9 @@ func listDocs(source fs.FS) ([]string, error) {
 
 // readDoc 读取单个说明文件；文件名经过 Base 处理，拒绝路径穿越。
 func readDoc(source fs.FS, name string) ([]byte, error) {
-	clean := filepath.Base(strings.TrimSpace(name))
+	clean := path.Base(strings.TrimSpace(name))
 	if clean == "." || clean == "" {
-		return nil, fmt.Errorf("缺少文件名")
+		return nil, errors.New("缺少文件名")
 	}
 	return fs.ReadFile(source, clean)
 }
