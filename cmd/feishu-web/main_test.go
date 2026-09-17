@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -64,6 +65,20 @@ func TestWriteProbeToTempCleansUpOnFailure(t *testing.T) {
 	after := probeTempDirs(t)
 	if len(after) > len(before) {
 		t.Fatalf("失败路径残留临时目录：%v", after)
+	}
+}
+
+func TestArchiveCommandFallsBackToGoRun(t *testing.T) {
+	cmd, err := archiveCommand([]string{"--archive"})
+	if err != nil {
+		t.Fatalf("无内嵌 probe 时应回退 go run，err = %v", err)
+	}
+	if filepath.Base(cmd.Path) != "go" {
+		t.Fatalf("cmd.Path = %q，期望 go", cmd.Path)
+	}
+	want := []string{"run", "./cmd/feishu-probe", "--archive"}
+	if !reflect.DeepEqual(cmd.Args[1:], want) {
+		t.Fatalf("cmd.Args = %#v，期望 %#v", cmd.Args[1:], want)
 	}
 }
 

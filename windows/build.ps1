@@ -18,6 +18,11 @@ if ($args.Count -eq 0) {
     if (Test-Path $builtWindowsExe) {
         Copy-Item $builtWindowsExe (Join-Path $scriptDir "feishu-web.exe") -Force
         Write-Host "已复制到 $scriptDir\feishu-web.exe，可直接双击 start.bat 或该文件启动。"
+        $staleProbe = Join-Path $scriptDir "feishu-probe.exe"
+        if (Test-Path $staleProbe) {
+            Remove-Item $staleProbe -Force
+            Write-Host "已移除旧的 feishu-probe.exe（改用单文件内置 probe）。"
+        }
     }
 } else {
     go run .\cmd\build @args

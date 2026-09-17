@@ -28,6 +28,15 @@ func TestParseTargets(t *testing.T) {
 	}
 }
 
+func TestResolveOutDir(t *testing.T) {
+	if got := resolveOutDir("/repo", "dist"); got != filepath.Join("/repo", "dist") {
+		t.Fatalf("相对路径 = %q", got)
+	}
+	if got := resolveOutDir("/repo", "/tmp/x"); got != "/tmp/x" {
+		t.Fatalf("绝对路径 = %q", got)
+	}
+}
+
 func TestTargetNames(t *testing.T) {
 	win := target{"windows", "amd64"}
 	if win.probeName() != "feishu-probe.exe" || win.webName() != "feishu-web.exe" || win.String() != "windows-amd64" {

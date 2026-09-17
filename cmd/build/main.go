@@ -70,6 +70,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	absOutDir := resolveOutDir(root, *outDir)
 	targets := defaultTargets
 	if strings.TrimSpace(*targetSpec) != "" {
 		if targets, err = parseTargets(*targetSpec); err != nil {
@@ -87,10 +88,17 @@ func main() {
 		fail(fmt.Errorf("暂存 docs 失败：%w", err))
 	}
 	for _, t := range targets {
-		if err := buildTarget(root, *outDir, t, idBlob, secretBlob); err != nil {
+		if err := buildTarget(root, absOutDir, t, idBlob, secretBlob); err != nil {
 			fail(err)
 		}
 	}
+}
+
+func resolveOutDir(root, outDir string) string {
+	if filepath.IsAbs(outDir) {
+		return outDir
+	}
+	return filepath.Join(root, outDir)
 }
 
 func buildTarget(root, outDir string, t target, idBlob, secretBlob string) error {
@@ -104,7 +112,7 @@ func buildTarget(root, outDir string, t target, idBlob, secretBlob string) error
 		return fmt.Errorf("构建 %s probe 失败：%w", t, err)
 	}
 
-	webPath := filepath.Join(root, outDir, t.String(), t.webName())
+	webPath := filepath.Join(outDir, t.String(), t.webName())
 	if err := os.MkdirAll(filepath.Dir(webPath), 0755); err != nil {
 		return err
 	}

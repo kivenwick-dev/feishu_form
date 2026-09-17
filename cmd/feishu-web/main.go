@@ -148,7 +148,11 @@ func runArchive(link, out, excel string, width, height float64) {
 	if strings.TrimSpace(excel) != "" {
 		args = append(args, "--excel", strings.TrimSpace(excel))
 	}
-	cmd := archiveCommand(args)
+	cmd, err := archiveCommand(args)
+	if err != nil {
+		finish(err)
+		return
+	}
 	cmd.Dir, cmd.Env = projectRoot(), os.Environ()
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -274,7 +278,7 @@ func chooseFolder() ([]byte, error) {
 			case errors.As(err, &exitErr) && exitErr.ExitCode() == 1:
 				return nil, fmt.Errorf("已取消选择目录")
 			default:
-				return nil, fmt.Errorf("无法选择目录：%w，请直接填写输出路径", err)
+				return nil, fmt.Errorf("zenity 选择失败：%w，请直接填写输出路径", err)
 			}
 		}
 		if strings.TrimSpace(string(out)) == "" {
@@ -284,7 +288,7 @@ func chooseFolder() ([]byte, error) {
 	}
 }
 
-func archiveCommand(args []string) *exec.Cmd {
+func archiveCommand(args []string) (*exec.Cmd, error) {
 	if executable, err := os.Executable(); err == nil {
 		dir := filepath.Dir(executable)
 		names := []string{"feishu-probe"}
@@ -294,15 +298,17 @@ func archiveCommand(args []string) *exec.Cmd {
 		for _, name := range names {
 			path := filepath.Join(dir, name)
 			if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
-				return exec.Command(path, args...)
+				return exec.Command(path, args...), nil
 			}
 		}
 	}
-	if path, err := extractEmbeddedProbe(); err == nil {
-		return exec.Command(path, args...)
-	} else if !errors.Is(err, errNoEmbeddedProbe) {
-		fmt.Fprintln(os.Stderr, "释放内嵌 probe 失败，回退到 go run：", err)
+	path, err := extractEmbeddedProbe()
+	if err == nil {
+		return exec.Command(path, args...), nil
+	}
+	if !errors.Is(err, errNoEmbeddedProbe) {
+		return nil, fmt.Errorf("内置程序释放失败：%w", err)
 	}
 	goArgs := append([]string{"run", "./cmd/feishu-probe"}, args...)
-	return exec.Command("go", goArgs...)
+	return exec.Command("go", goArgs...), nil
 }
