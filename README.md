@@ -14,6 +14,8 @@ Windows 启动脚本和打包入口位于 [`windows/`](windows/README.md)，双�
 - **界面：** 后续使用本地浏览器页面（`127.0.0.1`）作为小工具界面，不制作需要签名的 `.app`。
 - **Python 脚本：** 仅保留为既有 Excel 离线模式原型，不作为线上版正式依赖。
 
+打包分发：`go run ./cmd/build` 可生成 Windows / macOS / Ubuntu 单文件程序，构建时注入飞书凭据，同事无需配置即可启动。详见 [docs/使用说明.md](docs/使用说明.md)。
+
 ## 当前阶段：飞书可行性探测
 
 使用 `cmd/feishu-probe` 验证以下链路：

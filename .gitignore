@@ -4,3 +4,5 @@ outputs/
 __pycache__/
 *.pyc
 /windows/*.exe
+/cmd/feishu-web/embed/
+/dist/

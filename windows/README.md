@@ -4,21 +4,9 @@
 
 ## 直接启动
 
-双击 `start.bat`。脚本会：
+双击 `start.bat` 或 `feishu-web.exe` 即可。打包后的 `feishu-web.exe` 已内置飞书凭据，无需配置环境变量。
 
-1. 切换到项目根目录；
-2. 使用当前环境中的 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，如果没有就交互式输入；
-3. 优先运行 `windows/feishu-web.exe`；
-4. 如果还没有 `.exe`，检查 Go 是否安装，并使用 `go run` 启动源码版本；
-5. 自动打开 `http://127.0.0.1:8765`。
-
-App Secret 使用安全输入，不会写入项目文件。也可以提前在 PowerShell 中设置环境变量：
-
-```powershell
-$env:FEISHU_APP_ID = "cli_xxxxxxxxxxxxx"
-$env:FEISHU_APP_SECRET = "xxxxxxxxxxxxxxxx"
-.\windows\start.bat
-```
+如果还没有 `feishu-web.exe`，请在装有 Go 的机器上运行 `windows\build.ps1`；它会调用 `go run ./cmd/build` 生成内置凭据的单文件程序。
 
 ## 生成 Windows 可执行文件
 
