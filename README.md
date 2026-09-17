@@ -4,7 +4,7 @@
 
 完整的安装、环境变量、网页启动、Excel 对应规则和故障排查请阅读：[docs/使用说明.md](docs/使用说明.md)。
 
-Windows 启动脚本和打包入口位于 [`windows/`](windows/README.md)：运行 `windows/build.ps1` 会在 `dist/windows-amd64/` 生成单文件程序，并复制一份到 `windows/feishu-web.exe`，双击 `windows/start.bat` 即可启动。构建前需设置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`。
+Windows 启动脚本和打包入口位于 [`windows/`](windows/README.md)：运行 `windows/build.ps1` 会在 `dist/windows-amd64/` 生成单文件程序，并复制一份到 `windows/feishu-web.exe`，双击 `windows/start.bat` 即可启动。构建前建议设置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（未设置时产物需要环境变量覆盖才能使用）。
 
 ## 技术栈
 

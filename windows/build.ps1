@@ -8,14 +8,20 @@ if (-not (Get-Command go.exe -ErrorAction SilentlyContinue)) {
     throw "需要安装 Go 才能构建。"
 }
 
+$builtWindowsExe = Join-Path $projectRoot "dist\windows-amd64\feishu-web.exe"
+
 if ($args.Count -eq 0) {
     go run .\cmd\build -targets windows/amd64
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建失败（退出码 $LASTEXITCODE）。"
+    }
+    if (Test-Path $builtWindowsExe) {
+        Copy-Item $builtWindowsExe (Join-Path $scriptDir "feishu-web.exe") -Force
+        Write-Host "已复制到 $scriptDir\feishu-web.exe，可直接双击 start.bat 或该文件启动。"
+    }
 } else {
     go run .\cmd\build @args
-}
-
-$built = Join-Path $projectRoot "dist\windows-amd64\feishu-web.exe"
-if (Test-Path $built) {
-    Copy-Item $built (Join-Path $scriptDir "feishu-web.exe") -Force
-    Write-Host "已复制到 $scriptDir\feishu-web.exe，可直接双击 start.bat 或该文件启动。"
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建失败（退出码 $LASTEXITCODE）。"
+    }
 }
