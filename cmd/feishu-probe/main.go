@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"reimbursement-archiver/internal/credential"
 	"strings"
 	"time"
 )
@@ -80,6 +81,24 @@ type result struct {
 }
 
 const screenshotFolder = "截图"
+
+// 构建时通过 -ldflags "-X main.embeddedAppIDBlob=..." 注入的混淆凭据。
+var (
+	embeddedAppIDBlob     string
+	embeddedAppSecretBlob string
+)
+
+// resolveCredential 按“环境变量优先、内置混淆值兜底”的顺序解析应用凭据。
+func resolveCredential(envValue, blob string) string {
+	if v := strings.TrimSpace(envValue); v != "" {
+		return v
+	}
+	decoded, err := credential.Decode(blob)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(decoded)
+}
 
 type screenshotPDFOptions struct {
 	WidthMM  float64
@@ -1097,8 +1116,8 @@ func probe(rawURL, appID, appSecret, downloadDir, archiveDir, excelPath string) 
 func main() {
 	defaultOutput := filepath.Join("outputs", "feishu_probe_result.json")
 	urlFlag := flag.String("url", "", "飞书 Wiki 电子表格链接")
-	appID := flag.String("app-id", os.Getenv("FEISHU_APP_ID"), "飞书 App ID")
-	appSecret := flag.String("app-secret", os.Getenv("FEISHU_APP_SECRET"), "飞书 App Secret")
+	appID := flag.String("app-id", resolveCredential(os.Getenv("FEISHU_APP_ID"), embeddedAppIDBlob), "飞书 App ID")
+	appSecret := flag.String("app-secret", resolveCredential(os.Getenv("FEISHU_APP_SECRET"), embeddedAppSecretBlob), "飞书 App Secret")
 	output := flag.String("output", defaultOutput, "探测结果 JSON 文件")
 	downloadOne := flag.Bool("download-one", false, "下载预览中的第一份普通附件进行验证")
 	downloadDir := flag.String("download-dir", filepath.Join("outputs", "attachment_download_check"), "单附件验证下载目录")
@@ -1110,7 +1129,7 @@ func main() {
 	flag.Parse()
 	screenshotWidthMM, screenshotHeightMM = *widthMM, *heightMM
 	if *urlFlag == "" || *appID == "" || *appSecret == "" {
-		fmt.Fprintln(os.Stderr, "请提供 --url，并通过 FEISHU_APP_ID / FEISHU_APP_SECRET 或参数传入应用凭据。")
+		fmt.Fprintln(os.Stderr, "请提供表格链接，并通过内置凭据、FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量或 --app-id / --app-secret 参数提供应用凭据。")
 		os.Exit(2)
 	}
 	destination := ""

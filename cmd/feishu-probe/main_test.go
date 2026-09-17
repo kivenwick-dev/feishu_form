@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"reimbursement-archiver/internal/credential"
 	"strconv"
 	"strings"
 	"testing"
@@ -286,5 +287,24 @@ func TestCreateScreenshotPDFSkipsWhenNoImages(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Error("no PDF should be written when there are no images")
+	}
+}
+
+func TestResolveCredential(t *testing.T) {
+	blob := credential.Encode("embedded-id")
+	if got := resolveCredential("env-id", blob); got != "env-id" {
+		t.Fatalf("环境变量应优先：got %q", got)
+	}
+	if got := resolveCredential("", blob); got != "embedded-id" {
+		t.Fatalf("应回退内置值：got %q", got)
+	}
+	if got := resolveCredential("   ", blob); got != "embedded-id" {
+		t.Fatalf("空白环境变量应回退内置值：got %q", got)
+	}
+	if got := resolveCredential("", ""); got != "" {
+		t.Fatalf("都为空应返回空：got %q", got)
+	}
+	if got := resolveCredential("", "!!!bad!!!"); got != "" {
+		t.Fatalf("非法混淆串应返回空：got %q", got)
 	}
 }
