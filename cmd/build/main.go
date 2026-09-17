@@ -50,7 +50,7 @@ func parseTargets(spec string) ([]target, error) {
 		}
 		goos, goarch, ok := strings.Cut(part, "/")
 		goos, goarch = strings.TrimSpace(goos), strings.TrimSpace(goarch)
-		if !ok || goos == "" || goarch == "" {
+		if !ok || goos == "" || goarch == "" || strings.Contains(goarch, "/") {
 			return nil, fmt.Errorf("无效目标 %q，应为 goos/goarch", part)
 		}
 		targets = append(targets, target{goos, goarch})
@@ -154,6 +154,12 @@ func stageDocs(root string) error {
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+		if name := info.Name(); strings.HasPrefix(name, ".") || strings.HasPrefix(name, "._") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if info.IsDir() {
 			if rel == "superpowers" {
