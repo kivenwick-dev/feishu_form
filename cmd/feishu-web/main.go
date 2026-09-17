@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -296,6 +297,8 @@ func archiveCommand(args []string) *exec.Cmd {
 	}
 	if path, err := extractEmbeddedProbe(); err == nil {
 		return exec.Command(path, args...)
+	} else if !errors.Is(err, errNoEmbeddedProbe) {
+		fmt.Fprintln(os.Stderr, "释放内嵌 probe 失败，回退到 go run：", err)
 	}
 	goArgs := append([]string{"run", "./cmd/feishu-probe"}, args...)
 	return exec.Command("go", goArgs...)

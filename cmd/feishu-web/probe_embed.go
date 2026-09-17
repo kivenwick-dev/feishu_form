@@ -24,10 +24,12 @@ func writeProbeToTemp(data []byte, name string) (string, error) {
 	}
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, data, 0755); err != nil {
+		os.RemoveAll(dir)
 		return "", err
 	}
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(path, 0755); err != nil {
+			os.RemoveAll(dir)
 			return "", err
 		}
 	}
