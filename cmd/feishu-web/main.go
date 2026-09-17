@@ -35,7 +35,6 @@ const page = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name
 <script>let timer;async function chooseOut(){let r=await fetch('/api/choose-folder',{method:'POST'});if(r.ok)document.getElementById('out').value=(await r.json()).path}async function loadDocs(){let r=await fetch('/api/docs');let d=await r.json();let box=document.getElementById('docs');box.replaceChildren();if(!d.length){let empty=document.createElement('span');empty.className='hint';empty.textContent='暂无说明文件';box.append(empty);return}d.forEach(name=>{let a=document.createElement('a');a.href='#';a.textContent=name;a.addEventListener('click',e=>{e.preventDefault();openDoc(name)});box.append(a)})}async function openDoc(name){let r=await fetch('/api/docs/read?name='+encodeURIComponent(name));let body=await r.text();document.getElementById('modalTitle').textContent=name;document.getElementById('modalBody').textContent=r.ok?body:'读取失败：'+body;document.getElementById('modal').classList.add('show')}function closeDoc(){document.getElementById('modal').classList.remove('show')}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDoc()});async function start(){let b=document.getElementById('go'),u=document.getElementById('url').value,o=document.getElementById('out').value;let w=Number(document.getElementById('w').value),h=Number(document.getElementById('h').value);b.disabled=true;document.getElementById('bar').value=5;let x='';let f=document.getElementById('excel').files[0];if(f){let fd=new FormData();fd.append('file',f);let up=await fetch('/api/upload-excel',{method:'POST',body:fd});if(!up.ok){document.getElementById('status').textContent=await up.text();b.disabled=false;return}x=(await up.json()).path}let r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,excel:x,out:o,width:w,height:h})});if(!r.ok){document.getElementById('status').textContent=await r.text();b.disabled=false;return}timer=setInterval(poll,700)}async function poll(){let r=await fetch('/api/status'),s=await r.json();document.getElementById('status').textContent=s.logs.join('\n');document.getElementById('bar').value=s.done?100:(s.running?Math.min(95,10+s.logs.length*4):0);if(s.done||s.error){clearInterval(timer);document.getElementById('go').disabled=false;if(s.error)document.getElementById('bar').value=0}}loadDocs();poll()</script></html>`
 
 func main() {
-	root := projectRoot()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_ = template.Must(template.New("p").Parse(page)).Execute(w, nil)
 	})
@@ -44,7 +43,7 @@ func main() {
 	http.HandleFunc("/api/choose-folder", chooseFolderHandler)
 	http.HandleFunc("/api/docs", docsHandler)
 	http.HandleFunc("/api/docs/read", docReadHandler)
-	http.Handle("/docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir(filepath.Join(root, "docs")))))
+	http.Handle("/docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(docsSource()))))
 	http.HandleFunc("/api/status", statusHandler)
 	addr := "127.0.0.1:8765"
 	if os.Getenv("NO_BROWSER_OPEN") != "1" {
@@ -67,27 +66,16 @@ func chooseFolderHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func docsHandler(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir(filepath.Join(projectRoot(), "docs"))
-	if err != nil {
-		entries = nil
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
+	names, err := listDocs(docsSource())
+	if err != nil || names == nil {
+		names = []string{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(names)
 }
 
 func docReadHandler(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(r.URL.Query().Get("name"))
-	if name == "." || name == "" {
-		http.Error(w, "缺少文件名", 400)
-		return
-	}
-	b, err := os.ReadFile(filepath.Join(projectRoot(), "docs", name))
+	b, err := readDoc(docsSource(), r.URL.Query().Get("name"))
 	if err != nil {
 		http.Error(w, "文件不存在", 404)
 		return

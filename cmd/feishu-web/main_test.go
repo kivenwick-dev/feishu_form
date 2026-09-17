@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestWriteProbeToTemp(t *testing.T) {
@@ -63,5 +64,33 @@ func TestWriteProbeToTempCleansUpOnFailure(t *testing.T) {
 	after := probeTempDirs(t)
 	if len(after) > len(before) {
 		t.Fatalf("失败路径残留临时目录：%v", after)
+	}
+}
+
+func TestListDocs(t *testing.T) {
+	source := fstest.MapFS{
+		"使用说明.md":        &fstest.MapFile{Data: []byte("a")},
+		"sub/ignored.md": &fstest.MapFile{Data: []byte("b")},
+	}
+	names, err := listDocs(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "使用说明.md" {
+		t.Fatalf("names = %#v", names)
+	}
+}
+
+func TestReadDoc(t *testing.T) {
+	source := fstest.MapFS{"使用说明.md": &fstest.MapFile{Data: []byte("hello")}}
+	got, err := readDoc(source, "使用说明.md")
+	if err != nil || string(got) != "hello" {
+		t.Fatalf("readDoc = %q, %v", got, err)
+	}
+	if _, err := readDoc(source, "missing.md"); err == nil {
+		t.Fatal("缺失文件应返回错误")
+	}
+	if _, err := readDoc(source, ".."); err == nil {
+		t.Fatal("非法文件名应返回错误")
 	}
 }
