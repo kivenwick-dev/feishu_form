@@ -294,6 +294,9 @@ func archiveCommand(args []string) *exec.Cmd {
 			}
 		}
 	}
+	if path, err := extractEmbeddedProbe(); err == nil {
+		return exec.Command(path, args...)
+	}
 	goArgs := append([]string{"run", "./cmd/feishu-probe"}, args...)
 	return exec.Command("go", goArgs...)
 }
