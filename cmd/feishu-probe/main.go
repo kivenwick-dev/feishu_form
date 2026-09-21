@@ -884,6 +884,7 @@ func supplementExcelImages(excelPath, archivePath string) error {
 		return err
 	}
 	imageCount := 0
+	archivableImageCount := 0
 	fmt.Printf("Excel 浮动图片锚点共 %d 个\n", len(pictureCells))
 	for _, cell := range pictureCells {
 		col, rowNum, err := excelize.CellNameToCoordinates(cell)
@@ -914,6 +915,7 @@ func supplementExcelImages(excelPath, archivePath string) error {
 				fmt.Printf("跳过图片：%s 行=%d 列=%d，表头=%q 未识别为附件列\n", cell, rowNum, col+1, header)
 				continue
 			}
+			archivableImageCount++
 			dir := filepath.Join(root, person, outputAttachmentKind(kind))
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return err
@@ -941,8 +943,11 @@ func supplementExcelImages(excelPath, archivePath string) error {
 		}
 	}
 	f.Close()
-	if imageCount == 0 {
+	if archivableImageCount == 0 {
 		return errors.New("Excel 中未找到可归档的浮动图片")
+	}
+	if imageCount == 0 {
+		fmt.Println("Excel 浮动图片均已存在，未新增保存")
 	}
 	for _, person := range rowPerson {
 		invoiceCount, err := countRegularFiles(filepath.Join(root, person, "发票"))

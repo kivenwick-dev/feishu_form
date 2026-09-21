@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func testPNG(t *testing.T, w, h int) []byte {
@@ -174,6 +176,52 @@ func TestAttachmentTargetAvoidsCollisions(t *testing.T) {
 	}
 	if got, want := attachmentTarget(dir, "支付_账号充值成功截图", "a.png"), filepath.Join(shot, "a_3.png"); got != want {
 		t.Errorf("second collision target = %q, want %q", got, want)
+	}
+}
+
+func TestSupplementExcelImagesAllowsAllDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	img := testPNG(t, 20, 20)
+
+	excelPath := filepath.Join(dir, "source.xlsx")
+	f := excelize.NewFile()
+	if err := f.SetSheetRow("Sheet1", "A1", &[]any{"员工姓名", "支付_账号充值成功截图"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetCellValue("Sheet1", "A2", "张三"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.AddPictureFromBytes("Sheet1", "B2", &excelize.Picture{Extension: ".png", File: img}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SaveAs(excelPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(dir, "archive.zip")
+	root := strings.TrimSuffix(archivePath, filepath.Ext(archivePath))
+	shotDir := filepath.Join(root, "张三", screenshotFolder)
+	if err := os.MkdirAll(shotDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shotDir, "existing.png"), img, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := supplementExcelImages(excelPath, archivePath); err != nil {
+		t.Fatalf("duplicate-only Excel images should not fail: %v", err)
+	}
+	if got, err := countRegularFiles(shotDir); err != nil || got != 1 {
+		t.Fatalf("screenshot folder file count = %d, err = %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "张三", "截图.pdf")); err != nil {
+		t.Fatalf("screenshot PDF should be rebuilt: %v", err)
+	}
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Fatalf("archive ZIP should be rebuilt: %v", err)
 	}
 }
 
