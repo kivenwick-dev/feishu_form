@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestWriteProbeToTemp(t *testing.T) {
@@ -138,5 +139,105 @@ func TestListDocsEmptyReturnsNonNil(t *testing.T) {
 	}
 	if len(names) != 0 {
 		t.Fatalf("names = %#v", names)
+	}
+}
+
+func TestEnvDuration(t *testing.T) {
+	t.Setenv("REIMBURSEMENT_TEST_DURATION", "30m")
+	if got := envDuration("REIMBURSEMENT_TEST_DURATION", time.Hour); got != 30*time.Minute {
+		t.Fatalf("envDuration = %s，期望 30m", got)
+	}
+
+	t.Setenv("REIMBURSEMENT_TEST_DURATION", "bad")
+	if got := envDuration("REIMBURSEMENT_TEST_DURATION", time.Hour); got != time.Hour {
+		t.Fatalf("非法 duration 应回退默认值，got %s", got)
+	}
+}
+
+func TestCleanupOutputDirOnce(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	oldFile := filepath.Join(dir, "old.zip")
+	freshFile := filepath.Join(dir, "fresh.zip")
+	oldDir := filepath.Join(dir, "old-result")
+	freshDir := filepath.Join(dir, "fresh-result")
+
+	for _, path := range []string{oldDir, freshDir} {
+		if err := os.Mkdir(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{oldFile, freshFile, filepath.Join(oldDir, "data.txt"), filepath.Join(freshDir, "data.txt")} {
+		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oldTime := now.Add(-25 * time.Hour)
+	freshTime := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldDir, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(freshFile, freshTime, freshTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(freshDir, freshTime, freshTime); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupOutputDirOnce(dir, 24*time.Hour, now)
+
+	if _, err := os.Stat(oldFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("过期文件应被删除，stat err = %v", err)
+	}
+	if _, err := os.Stat(oldDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("过期目录应被删除，stat err = %v", err)
+	}
+	if _, err := os.Stat(freshFile); err != nil {
+		t.Fatalf("未过期文件不应删除：%v", err)
+	}
+	if _, err := os.Stat(freshDir); err != nil {
+		t.Fatalf("未过期目录不应删除：%v", err)
+	}
+}
+
+func TestCleanupDownloadedArchive(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "result.zip")
+	root := filepath.Join(dir, "result")
+	if err := os.WriteFile(archive, []byte("zip"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "data.txt"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	job.Lock()
+	job.ArchivePath = archive
+	job.DownloadURL = "/api/download"
+	job.Logs = []string{"完成，可下载 ZIP：result.zip"}
+	job.Unlock()
+
+	cleanupDownloadedArchive(archive)
+
+	if _, err := os.Stat(archive); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("下载后的 ZIP 应被删除，stat err = %v", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("下载后的结果目录应被删除，stat err = %v", err)
+	}
+	job.Lock()
+	defer job.Unlock()
+	if job.ArchivePath != "" || job.DownloadURL != "" {
+		t.Fatalf("下载后应清空任务下载状态：ArchivePath=%q DownloadURL=%q", job.ArchivePath, job.DownloadURL)
+	}
+	if got := job.Logs[len(job.Logs)-1]; got != "ZIP 已下载，服务器临时文件已清理" {
+		t.Fatalf("最后一条日志 = %q", got)
 	}
 }

@@ -39,6 +39,7 @@ const page = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name
 <script>let timer;async function chooseOut(){let r=await fetch('/api/choose-folder',{method:'POST'});if(r.ok){document.getElementById('out').value=(await r.json()).path}else{alert(await r.text())}}async function loadDocs(){let r=await fetch('/api/docs');let d=await r.json();let box=document.getElementById('docs');box.replaceChildren();if(!d.length){let empty=document.createElement('span');empty.className='hint';empty.textContent='暂无说明文件';box.append(empty);return}d.forEach(name=>{let a=document.createElement('a');a.href='#';a.textContent=name;a.addEventListener('click',e=>{e.preventDefault();openDoc(name)});box.append(a)})}async function openDoc(name){let r=await fetch('/api/docs/read?name='+encodeURIComponent(name));let body=await r.text();document.getElementById('modalTitle').textContent=name;document.getElementById('modalBody').textContent=r.ok?body:'读取失败：'+body;document.getElementById('modal').classList.add('show')}function closeDoc(){document.getElementById('modal').classList.remove('show')}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDoc()});function renderDownload(s){let box=document.getElementById('download');box.replaceChildren();if(!s.download_url)return;let a=document.createElement('a');a.href=s.download_url;a.textContent='下载 ZIP：'+(s.zip_name||'归档结果.zip');a.style.display='inline-block';a.style.marginTop='18px';a.style.padding='11px 18px';a.style.borderRadius='9px';a.style.background='#14a36f';a.style.color='#fff';a.style.textDecoration='none';a.style.fontWeight='650';box.append(a)}async function start(){let b=document.getElementById('go'),u=document.getElementById('url').value,o=document.getElementById('out').value;let w=Number(document.getElementById('w').value),h=Number(document.getElementById('h').value);b.disabled=true;document.getElementById('bar').value=5;document.getElementById('download').replaceChildren();let x='';let f=document.getElementById('excel').files[0];if(f){let fd=new FormData();fd.append('file',f);let up=await fetch('/api/upload-excel',{method:'POST',body:fd});if(!up.ok){document.getElementById('status').textContent=await up.text();b.disabled=false;return}x=(await up.json()).path}let r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,excel:x,out:o,width:w,height:h})});if(!r.ok){document.getElementById('status').textContent=await r.text();b.disabled=false;return}timer=setInterval(poll,700)}async function poll(){let r=await fetch('/api/status'),s=await r.json();document.getElementById('status').textContent=s.logs.join('\n');renderDownload(s);document.getElementById('bar').value=s.done?100:(s.running?Math.min(95,10+s.logs.length*4):0);if(s.done||s.error){clearInterval(timer);document.getElementById('go').disabled=false;if(s.error)document.getElementById('bar').value=0}}loadDocs();poll()</script></html>`
 
 func main() {
+	startOutputCleanup()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		data := struct {
 			DefaultOut          string
@@ -166,6 +167,72 @@ func defaultOutputDir() string {
 		return out
 	}
 	return "outputs"
+}
+
+func outputRetention() time.Duration {
+	return envDuration("REIMBURSEMENT_OUTPUT_RETENTION", 24*time.Hour)
+}
+
+func outputCleanupInterval() time.Duration {
+	return envDuration("REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL", time.Hour)
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s=%q 无法解析，使用默认值 %s\n", name, raw, fallback)
+		return fallback
+	}
+	return d
+}
+
+func startOutputCleanup() {
+	retention := outputRetention()
+	interval := outputCleanupInterval()
+	if retention <= 0 || interval <= 0 {
+		fmt.Println("outputs 自动清理已关闭")
+		return
+	}
+	go func() {
+		cleanupOutputDirOnce(defaultOutputDir(), retention, time.Now())
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for now := range ticker.C {
+			cleanupOutputDirOnce(defaultOutputDir(), retention, now)
+		}
+	}()
+}
+
+func cleanupOutputDirOnce(dir string, retention time.Duration, now time.Time) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || retention <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "清理 outputs 失败，无法读取 %s：%v\n", dir, err)
+		}
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "清理 outputs 跳过 %s：%v\n", path, err)
+			continue
+		}
+		if now.Sub(info.ModTime()) < retention {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			fmt.Fprintf(os.Stderr, "清理 outputs 删除 %s 失败：%v\n", path, err)
+		}
+	}
 }
 
 func folderPickerEnabled() bool {
@@ -303,10 +370,45 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = filepath.Base(path)
 	}
+	file, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "ZIP 文件不存在", http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.QueryEscape(name))
-	http.ServeFile(w, r, path)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+	if _, err := io.Copy(w, file); err != nil {
+		fmt.Fprintf(os.Stderr, "下载 ZIP 中断，暂不清理 %s：%v\n", path, err)
+		return
+	}
+	cleanupDownloadedArchive(path)
 }
+
+func cleanupDownloadedArchive(archivePath string) {
+	if strings.TrimSpace(archivePath) == "" {
+		return
+	}
+	paths := []string{archivePath}
+	if filepath.Ext(archivePath) != "" {
+		paths = append(paths, strings.TrimSuffix(archivePath, filepath.Ext(archivePath)))
+	}
+	for _, path := range paths {
+		if err := os.RemoveAll(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "下载后清理 %s 失败：%v\n", path, err)
+		}
+	}
+	job.Lock()
+	if job.ArchivePath == archivePath {
+		job.ArchivePath = ""
+		job.DownloadURL = ""
+		job.Logs = append(job.Logs, "ZIP 已下载，服务器临时文件已清理")
+	}
+	job.Unlock()
+}
+
 func projectRoot() string {
 	var candidates []string
 	if configured := strings.TrimSpace(os.Getenv("REIMBURSEMENT_PROJECT_ROOT")); configured != "" {
