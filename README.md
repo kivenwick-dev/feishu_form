@@ -6,6 +6,8 @@
 
 Windows 启动脚本和打包入口位于 [`windows/`](windows/README.md)：运行 `windows/build.ps1` 会在 `dist/windows-amd64/` 生成单文件程序，并复制一份到 `windows/feishu-web.exe`，双击 `windows/start.bat` 即可启动。构建前建议设置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`（未设置时产物需要环境变量覆盖才能使用）。
 
+云服务器 Docker 部署请阅读：[docs/Docker部署.md](docs/Docker部署.md)。线上版通过 `.env` 配置服务 IP、端口、输出目录和飞书凭据，归档完成后浏览器直接下载 ZIP。
+
 ## 技术栈
 
 - **正式实现：Go**。macOS 和 Windows 均可使用，不依赖 Python 运行环境。

@@ -1,0 +1,11 @@
+.git
+.DS_Store
+.gocache
+dist
+outputs
+__pycache__
+*.pyc
+*.log
+.env
+cmd/feishu-web/embed
+windows/*.exe

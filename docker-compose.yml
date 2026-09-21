@@ -1,0 +1,22 @@
+name: reimbursement-archiver
+
+services:
+  reimbursement-archiver:
+    build:
+      context: .
+    image: reimbursement-archiver:latest
+    container_name: reimbursement-archiver
+    restart: unless-stopped
+    ports:
+      - "${REIMBURSEMENT_PUBLIC_HOST:-0.0.0.0}:${REIMBURSEMENT_PORT:-8765}:${REIMBURSEMENT_PORT:-8765}"
+    environment:
+      NO_BROWSER_OPEN: "1"
+      REIMBURSEMENT_HOST: "0.0.0.0"
+      REIMBURSEMENT_PORT: "${REIMBURSEMENT_PORT:-8765}"
+      REIMBURSEMENT_OUTPUT_DIR: "${REIMBURSEMENT_OUTPUT_DIR:-/data/outputs}"
+      REIMBURSEMENT_DISABLE_FOLDER_PICKER: "${REIMBURSEMENT_DISABLE_FOLDER_PICKER:-1}"
+      FEISHU_APP_ID: "${FEISHU_APP_ID:-}"
+      FEISHU_APP_SECRET: "${FEISHU_APP_SECRET:-}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - "${REIMBURSEMENT_HOST_OUTPUT_DIR:-./outputs}:${REIMBURSEMENT_OUTPUT_DIR:-/data/outputs}"
