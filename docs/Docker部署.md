@@ -25,7 +25,7 @@ sudo usermod -aG docker "$USER"
 在服务器上拉取 GitHub 的 `test` 分支：
 
 ```bash
-git clone -b test git@github.com:kivenwick-dev/feishu_form.git
+git clone -b test https://github.com/kivenwick-dev/feishu_form.git
 cd feishu_form
 ```
 
