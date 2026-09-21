@@ -22,10 +22,26 @@ sudo usermod -aG docker "$USER"
 
 ## 2. 上传或拉取项目
 
-进入项目目录，也就是能看到 `go.mod`、`Dockerfile`、`docker-compose.yml` 的目录。
+在服务器上拉取 GitHub 的 `test` 分支：
 
 ```bash
-cd /path/to/feishu-archiver
+git clone -b test git@github.com:kivenwick-dev/feishu_form.git
+cd feishu_form
+```
+
+如果服务器不能使用 SSH Key，也可以用 HTTPS：
+
+```bash
+git clone -b test https://github.com/kivenwick-dev/feishu_form.git
+cd feishu_form
+```
+
+如果项目目录已经存在，进入目录后更新到 `test` 分支最新代码：
+
+```bash
+cd feishu_form
+git checkout test
+git pull origin test
 ```
 
 ## 3. 配置 .env
