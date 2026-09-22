@@ -18,13 +18,14 @@ import (
 )
 
 type jobState struct {
-	Running     bool     `json:"running"`
-	Done        bool     `json:"done"`
-	Error       string   `json:"error,omitempty"`
-	Logs        []string `json:"logs"`
-	ArchivePath string   `json:"-"`
-	ZipName     string   `json:"zip_name,omitempty"`
-	DownloadURL string   `json:"download_url,omitempty"`
+	Running      bool     `json:"running"`
+	Done         bool     `json:"done"`
+	Error        string   `json:"error,omitempty"`
+	Logs         []string `json:"logs"`
+	ArchivePath  string   `json:"-"`
+	ZipName      string   `json:"zip_name,omitempty"`
+	DownloadURL  string   `json:"download_url,omitempty"`
+	logsExpireAt time.Time
 }
 
 var job = struct {
@@ -35,11 +36,12 @@ var job = struct {
 const page = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>飞书报销表归档</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;margin:0;padding:0 34px 48px 300px;color:#172033;background:#f5f7fb}main{max-width:860px;margin:42px auto}.card{background:#fff;border:1px solid #e7eaf0;border-radius:16px;padding:30px 34px;box-shadow:0 10px 30px #20304d0d}h1{font-size:28px;margin:0 0 8px}label{display:block;margin:22px 0 8px;font-weight:650;font-size:14px}input{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid #d5dbe5;border-radius:9px;font-size:14px;background:#fff}input:focus{outline:3px solid #1677ff22;border-color:#1677ff}.row{display:flex;align-items:center}.row input{flex:1}button{margin-top:24px;padding:12px 24px;border:0;border-radius:9px;background:#1677ff;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:.15s}button:hover{background:#0f63d8;transform:translateY(-1px)}button.small{margin:0 0 0 10px;padding:10px 14px;font-size:13px;background:#eef4ff;color:#145dcc}button.small:hover{background:#dceaff}button:disabled{background:#aeb8c8;cursor:not-allowed;transform:none}progress{width:100%;height:12px;margin-top:24px;accent-color:#1677ff}#status{margin-top:18px;padding:13px 15px;border-radius:9px;background:#f6f8fb;white-space:pre-wrap;color:#526078;line-height:1.7;font-size:13px;min-height:22px}.hint{color:#718096;font-size:13px}.drawer{position:fixed;left:0;top:0;width:260px;height:100vh;box-sizing:border-box;padding:28px 18px;background:#fff;border-right:1px solid #e3e7ef;overflow:auto;box-shadow:4px 0 18px #20304d08}.drawer h2{font-size:18px;margin:0 0 6px}.drawer .sub{font-size:12px;color:#8792a5;margin-bottom:18px}.drawer a{display:block;padding:10px 11px;color:#245fc2;text-decoration:none;border-radius:8px;font-size:13px;cursor:pointer}.drawer a:hover{background:#eef4ff}.modal{display:none;position:fixed;inset:0;background:#17203366;z-index:10;align-items:center;justify-content:center;padding:24px}.modal.show{display:flex}.modalbox{background:#fff;border-radius:14px;width:min(760px,94vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #17203344}.modalhead{padding:16px 20px;border-bottom:1px solid #e8ebf1;display:flex;justify-content:space-between;align-items:center;font-weight:650}.close{margin:0;padding:2px 9px;background:transparent;color:#65738a;font-size:24px;font-weight:400}.close:hover{background:#f0f2f6;color:#172033;transform:none}.modalbody{padding:22px;overflow:auto;white-space:pre-wrap;line-height:1.75;color:#39465a;font-size:14px}</style>
 <div class="drawer"><h2>文件抽屉</h2><div class="sub">点击文件名查看使用说明</div><div id="docs">正在读取说明…</div></div><main><div class="card"><h1>飞书报销表归档工具</h1><p class="hint">线上表格下载 PDF，本地 Excel 补充浮动图片，最后合并生成员工目录和 ZIP。</p>
-<label>飞书表格链接</label><input id="url" placeholder="粘贴 https://...feishu.cn/wiki/... 链接"><label>本地 Excel 文件（可选）</label><input id="excel" type="file" accept=".xlsx,.xlsm"><label>截图 PDF 图片尺寸（毫米）</label><div class="row"><input id="w" type="number" min="1" step="1" value="180" placeholder="宽度"><input id="h" type="number" min="1" step="1" value="260" placeholder="高度"></div><label>输出目录</label><div class="row"><input id="out" value="{{.DefaultOut}}">{{if .FolderPickerEnabled}}<button class="small" onclick="chooseOut()">选择目录</button>{{end}}</div><button id="go" onclick="start()">开始归档</button><progress id="bar" value="0" max="100"></progress><div id="status">等待开始</div><div id="download"></div></div></main><div id="modal" class="modal" onclick="if(event.target===this)closeDoc()"><div class="modalbox"><div class="modalhead"><span id="modalTitle">使用说明</span><button class="close" onclick="closeDoc()">×</button></div><div id="modalBody" class="modalbody"></div></div></div>
+<label>飞书表格链接</label><input id="url" placeholder="粘贴 https://...feishu.cn/wiki/... 链接"><label>本地 Excel 文件（可选）</label><input id="excel" type="file" accept=".xlsx,.xlsm"><label>截图 PDF 图片尺寸（毫米）</label><div class="row"><input id="w" type="number" min="1" step="1" value="180" placeholder="宽度"><input id="h" type="number" min="1" step="1" value="260" placeholder="高度"></div><label>输出目录</label><div class="row"><input id="out" value="{{.DefaultOut}}" readonly></div><p class="hint">云服务存档：归档文件和运行日志仅保留 10 分钟，随后自动清理。</p><button id="go" onclick="start()">开始归档</button><progress id="bar" value="0" max="100"></progress><div id="status">等待开始</div><div id="download"></div></div></main><div id="modal" class="modal" onclick="if(event.target===this)closeDoc()"><div class="modalbox"><div class="modalhead"><span id="modalTitle">使用说明</span><button class="close" onclick="closeDoc()">×</button></div><div id="modalBody" class="modalbody"></div></div></div>
 <script>let timer;async function chooseOut(){let r=await fetch('/api/choose-folder',{method:'POST'});if(r.ok){document.getElementById('out').value=(await r.json()).path}else{alert(await r.text())}}async function loadDocs(){let r=await fetch('/api/docs');let d=await r.json();let box=document.getElementById('docs');box.replaceChildren();if(!d.length){let empty=document.createElement('span');empty.className='hint';empty.textContent='暂无说明文件';box.append(empty);return}d.forEach(name=>{let a=document.createElement('a');a.href='#';a.textContent=name;a.addEventListener('click',e=>{e.preventDefault();openDoc(name)});box.append(a)})}async function openDoc(name){let r=await fetch('/api/docs/read?name='+encodeURIComponent(name));let body=await r.text();document.getElementById('modalTitle').textContent=name;document.getElementById('modalBody').textContent=r.ok?body:'读取失败：'+body;document.getElementById('modal').classList.add('show')}function closeDoc(){document.getElementById('modal').classList.remove('show')}document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDoc()});function renderDownload(s){let box=document.getElementById('download');box.replaceChildren();if(!s.download_url)return;let a=document.createElement('a');a.href=s.download_url;a.textContent='下载 ZIP：'+(s.zip_name||'归档结果.zip');a.style.display='inline-block';a.style.marginTop='18px';a.style.padding='11px 18px';a.style.borderRadius='9px';a.style.background='#14a36f';a.style.color='#fff';a.style.textDecoration='none';a.style.fontWeight='650';box.append(a)}async function start(){let b=document.getElementById('go'),u=document.getElementById('url').value,o=document.getElementById('out').value;let w=Number(document.getElementById('w').value),h=Number(document.getElementById('h').value);b.disabled=true;document.getElementById('bar').value=5;document.getElementById('download').replaceChildren();let x='';let f=document.getElementById('excel').files[0];if(f){let fd=new FormData();fd.append('file',f);let up=await fetch('/api/upload-excel',{method:'POST',body:fd});if(!up.ok){document.getElementById('status').textContent=await up.text();b.disabled=false;return}x=(await up.json()).path}let r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,excel:x,out:o,width:w,height:h})});if(!r.ok){document.getElementById('status').textContent=await r.text();b.disabled=false;return}timer=setInterval(poll,700)}async function poll(){let r=await fetch('/api/status'),s=await r.json();document.getElementById('status').textContent=s.logs.join('\n');renderDownload(s);document.getElementById('bar').value=s.done?100:(s.running?Math.min(95,10+s.logs.length*4):0);if(s.done||s.error){clearInterval(timer);document.getElementById('go').disabled=false;if(s.error)document.getElementById('bar').value=0}}loadDocs();poll()</script></html>`
 
 func main() {
 	startOutputCleanup()
+	startLogCleanup()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		data := struct {
 			DefaultOut          string
@@ -142,10 +144,10 @@ func startHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job.Running, job.Done, job.Error, job.ArchivePath, job.ZipName, job.DownloadURL, job.Logs = true, false, "", "", "", "", []string{"准备开始"}
+	job.logsExpireAt = time.Time{}
 	job.Unlock()
-	if strings.TrimSpace(req.Out) == "" {
-		req.Out = defaultOutputDir()
-	}
+	// 云服务存档必须写入受控目录，不能采信客户端传入的路径。
+	req.Out = defaultOutputDir()
 	go runArchive(req.URL, req.Out, req.Excel, req.Width, req.Height)
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -170,12 +172,14 @@ func defaultOutputDir() string {
 }
 
 func outputRetention() time.Duration {
-	return envDuration("REIMBURSEMENT_OUTPUT_RETENTION", 24*time.Hour)
+	return envDuration("REIMBURSEMENT_OUTPUT_RETENTION", 10*time.Minute)
 }
 
 func outputCleanupInterval() time.Duration {
-	return envDuration("REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL", time.Hour)
+	return envDuration("REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL", time.Minute)
 }
+
+const logRetention = 10 * time.Minute
 
 func envDuration(name string, fallback time.Duration) time.Duration {
 	raw := strings.TrimSpace(os.Getenv(name))
@@ -205,6 +209,26 @@ func startOutputCleanup() {
 			cleanupOutputDirOnce(defaultOutputDir(), retention, now)
 		}
 	}()
+}
+
+// startLogCleanup 清理已结束任务的页面日志，避免云服务长期保留运行信息。
+func startLogCleanup() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for now := range ticker.C {
+			cleanupExpiredLogs(now)
+		}
+	}()
+}
+
+func cleanupExpiredLogs(now time.Time) {
+	job.Lock()
+	defer job.Unlock()
+	if !job.Running && !job.logsExpireAt.IsZero() && !now.Before(job.logsExpireAt) {
+		job.Logs = nil
+		job.logsExpireAt = time.Time{}
+	}
 }
 
 func cleanupOutputDirOnce(dir string, retention time.Duration, now time.Time) {
@@ -304,6 +328,7 @@ func runArchive(link, out, excel string, width, height float64) {
 	job.ZipName = filepath.Base(archivePath)
 	job.DownloadURL = "/api/download"
 	job.Logs = append(job.Logs, "完成，可下载 ZIP："+job.ZipName)
+	job.logsExpireAt = time.Now().Add(logRetention)
 	job.Unlock()
 }
 
@@ -343,9 +368,11 @@ func finish(err error) {
 	job.Lock()
 	job.Running, job.Done, job.Error = false, true, err.Error()
 	job.Logs = append(job.Logs, "处理失败："+err.Error())
+	job.logsExpireAt = time.Now().Add(logRetention)
 	job.Unlock()
 }
 func statusHandler(w http.ResponseWriter, r *http.Request) {
+	cleanupExpiredLogs(time.Now())
 	job.Lock()
 	defer job.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -405,6 +432,7 @@ func cleanupDownloadedArchive(archivePath string) {
 		job.ArchivePath = ""
 		job.DownloadURL = ""
 		job.Logs = append(job.Logs, "ZIP 已下载，服务器临时文件已清理")
+		job.logsExpireAt = time.Now().Add(logRetention)
 	}
 	job.Unlock()
 }

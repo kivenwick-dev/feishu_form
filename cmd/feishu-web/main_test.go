@@ -154,6 +154,48 @@ func TestEnvDuration(t *testing.T) {
 	}
 }
 
+func TestCloudDefaultsKeepOutputForTenMinutes(t *testing.T) {
+	t.Setenv("REIMBURSEMENT_OUTPUT_RETENTION", "")
+	t.Setenv("REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL", "")
+	if got := outputRetention(); got != 10*time.Minute {
+		t.Fatalf("outputRetention = %s，期望 10m", got)
+	}
+	if got := outputCleanupInterval(); got != time.Minute {
+		t.Fatalf("outputCleanupInterval = %s，期望 1m", got)
+	}
+}
+
+func TestCleanupExpiredLogs(t *testing.T) {
+	job.Lock()
+	job.Running = false
+	job.Logs = []string{"完成"}
+	job.logsExpireAt = time.Now().Add(-time.Second)
+	job.Unlock()
+
+	cleanupExpiredLogs(time.Now())
+
+	job.Lock()
+	defer job.Unlock()
+	if job.Logs != nil {
+		t.Fatalf("过期日志应被清空，got %#v", job.Logs)
+	}
+	if !job.logsExpireAt.IsZero() {
+		t.Fatalf("过期时间应被清空，got %s", job.logsExpireAt)
+	}
+}
+
+func TestPageLocksCloudOutputDirectory(t *testing.T) {
+	if !strings.Contains(page, `id="out" value="{{.DefaultOut}}" readonly`) {
+		t.Fatal("输出目录输入框应锁定")
+	}
+	if strings.Contains(page, `onclick="chooseOut()"`) {
+		t.Fatal("云服务页面不应提供输出目录选择")
+	}
+	if !strings.Contains(page, "云服务存档") {
+		t.Fatal("页面应标明云服务存档")
+	}
+}
+
 func TestCleanupOutputDirOnce(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()

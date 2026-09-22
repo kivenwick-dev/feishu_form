@@ -77,8 +77,8 @@ REIMBURSEMENT_PORT=8765
 | `REIMBURSEMENT_PORT` | 服务端口，默认 `8765` |
 | `REIMBURSEMENT_OUTPUT_DIR` | 容器内输出目录，默认 `/data/outputs` |
 | `REIMBURSEMENT_HOST_OUTPUT_DIR` | 宿主机保存输出文件的位置，默认 `./outputs` |
-| `REIMBURSEMENT_OUTPUT_RETENTION` | outputs 自动清理保留时长，默认 `24h`；设为 `0` 可关闭 |
-| `REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL` | outputs 自动清理扫描间隔，默认 `1h` |
+| `REIMBURSEMENT_OUTPUT_RETENTION` | outputs 自动清理保留时长，默认 `10m`；设为 `0` 可关闭 |
+| `REIMBURSEMENT_OUTPUT_CLEANUP_INTERVAL` | outputs 自动清理扫描间隔，默认 `1m` |
 | `REIMBURSEMENT_DISABLE_FOLDER_PICKER` | 是否隐藏桌面选择目录按钮。Docker 中建议保持 `1` |
 
 `.env` 内含密钥，已经被 `.gitignore` 忽略，不要提交到 Git。
@@ -114,11 +114,11 @@ http://服务器公网IP:8765
 1. 打开页面。
 2. 粘贴飞书 Wiki/电子表格链接。
 3. 上传与线上表对应的 Excel 文件。
-4. 输出目录保持默认 `/data/outputs` 即可。
+4. 输出目录已锁定为服务端配置的 `/data/outputs`，无需也不能在网页中修改。
 5. 点击“开始归档”。
 6. 完成后点击页面里的“下载 ZIP”。
 
-服务只把结果临时写到 `REIMBURSEMENT_OUTPUT_DIR` 供浏览器下载；ZIP 成功下载后，会立即删除服务器上的 ZIP 和同名结果目录。自动清理仍会作为兜底运行，默认删除超过 24 小时的残留输出；如需临时延长未下载结果的保留窗口，可在 `.env` 中调大 `REIMBURSEMENT_OUTPUT_RETENTION` 后重启容器。
+服务只把结果临时写到 `REIMBURSEMENT_OUTPUT_DIR` 供浏览器下载；ZIP 成功下载后，会立即删除服务器上的 ZIP 和同名结果目录。自动清理仍会作为兜底运行，默认删除超过 10 分钟的残留输出。页面运行日志也会在任务结束 10 分钟后自动清空；如需临时延长未下载结果的保留窗口，可在 `.env` 中调大 `REIMBURSEMENT_OUTPUT_RETENTION` 后重启容器。
 
 ZIP 文件名和内部顶层目录会沿用飞书表格标题，例如：
 
